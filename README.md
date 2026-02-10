@@ -127,7 +127,14 @@ sudo mv pmc /usr/local/bin/
 #### Linux (x86_64)
 
 ```bash
-curl -L https://github.com/askucher/pmc/releases/latest/download/pmc-x86_64-unknown-linux-gnu.tar.gz | tar xz
+curl -L https://github.com/askucher/pmc/releases/latest/download/pmc-x86_64-unknown-linux-musl.tar.gz | tar xz
+sudo mv pmc /usr/local/bin/
+```
+
+#### Linux (ARM64)
+
+```bash
+curl -L https://github.com/askucher/pmc/releases/latest/download/pmc-aarch64-unknown-linux-musl.tar.gz | tar xz
 sudo mv pmc /usr/local/bin/
 ```
 
