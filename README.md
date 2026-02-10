@@ -108,11 +108,42 @@ PMC stores its configuration in `~/.pmc/`:
 
 ### Installation
 
-Pre-built binaries for Linux, MacOS, and WSL can be found on the [releases](releases) page.
+Pre-built binaries are available on the [releases](https://github.com/askucher/pmc/releases/latest) page.
 
-There is no windows support yet. Install from crates.io using `cargo install pmc` (requires clang++)
+#### macOS (Apple Silicon)
 
-#### Building
+```bash
+curl -L https://github.com/askucher/pmc/releases/latest/download/pmc-aarch64-apple-darwin.tar.gz | tar xz
+sudo mv pmc /usr/local/bin/
+```
+
+#### macOS (Intel)
+
+```bash
+curl -L https://github.com/askucher/pmc/releases/latest/download/pmc-x86_64-apple-darwin.tar.gz | tar xz
+sudo mv pmc /usr/local/bin/
+```
+
+#### Linux (x86_64)
+
+```bash
+curl -L https://github.com/askucher/pmc/releases/latest/download/pmc-x86_64-unknown-linux-gnu.tar.gz | tar xz
+sudo mv pmc /usr/local/bin/
+```
+
+#### Windows (WSL)
+
+PMC does not support native Windows. Use [WSL](https://learn.microsoft.com/en-us/windows/wsl/install) and follow the Linux instructions above.
+
+#### Install from source
+
+Requires Rust and clang++.
+
+```bash
+cargo install pmc
+```
+
+#### Building from source
 
 - Clone the project
 - Open a terminal in the project folder
