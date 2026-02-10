@@ -1,0 +1,25 @@
+# example systemd file. edit as needed
+
+[Unit]
+Description=PMC Daemon
+After=network.target
+
+[Service]
+LimitNOFILE=infinity
+LimitNPROC=infinity
+LimitCORE=infinity
+
+User=root
+Type=forking
+WorkingDirectory=/root/.pmc
+PIDFile=/root/.pmc/daemon.pid
+Restart=on-failure
+StartLimitInterval=180
+StartLimitBurst=30
+RestartSec=5s
+
+ExecStart=/root/.cargo/bin/pmc daemon start -vvv
+ExecStop=/root/.cargo/bin/pmc daemon stop -vvv
+
+[Install]
+WantedBy=multi-user.target
