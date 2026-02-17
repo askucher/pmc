@@ -132,12 +132,22 @@ pub struct Process {
     pub children: Vec<i64>,
     #[serde(with = "ts_milliseconds")]
     pub started: DateTime<Utc>,
+    #[serde(default)]
+    pub initial_logs: InitialLogs,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Crash {
     pub crashed: bool,
     pub value: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Default)]
+pub struct InitialLogs {
+    pub out: Vec<String>,
+    pub error: Vec<String>,
+    pub start_pos_out: u64,
+    pub start_pos_error: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, ToSchema)]
@@ -313,6 +323,12 @@ impl Runner {
                 },
             };
 
+            let log_name = name.replace(' ', "_");
+            let log_out_path = global!("pmc.logs.out", log_name.as_str());
+            let log_err_path = global!("pmc.logs.error", log_name.as_str());
+            let start_pos_out = std::fs::metadata(&log_out_path).map(|m| m.len()).unwrap_or(0);
+            let start_pos_error = std::fs::metadata(&log_err_path).map(|m| m.len()).unwrap_or(0);
+
             let pid = process_run(ProcessMetadata {
                 args: config.args,
                 name: name.clone(),
@@ -338,6 +354,12 @@ impl Runner {
                     started: Utc::now(),
                     script: command.clone(),
                     env: env::vars().collect(),
+                    initial_logs: InitialLogs {
+                        out: vec![],
+                        error: vec![],
+                        start_pos_out,
+                        start_pos_error,
+                    },
                 },
             );
         }
@@ -360,6 +382,12 @@ impl Runner {
             let Process {
                 path, script, name, ..
             } = process.clone();
+
+            let log_name = name.replace(' ', "_");
+            let log_out_path = global!("pmc.logs.out", log_name.as_str());
+            let log_err_path = global!("pmc.logs.error", log_name.as_str());
+            let start_pos_out = std::fs::metadata(&log_out_path).map(|m| m.len()).unwrap_or(0);
+            let start_pos_error = std::fs::metadata(&log_err_path).map(|m| m.len()).unwrap_or(0);
 
             kill_children(process.children.clone());
             process_stop(process.pid)
@@ -398,6 +426,12 @@ impl Runner {
                 process.started = Utc::now();
                 process.crash.crashed = false;
                 process.env.extend(env::vars().collect::<Env>());
+                process.initial_logs = InitialLogs {
+                    out: vec![],
+                    error: vec![],
+                    start_pos_out,
+                    start_pos_error,
+                };
 
                 then!(dead, process.restarts += 1);
                 then!(dead, process.crash.value += 1);
@@ -618,6 +652,18 @@ impl Runner {
             .iter()
             .find(|(_, p)| p.name == name)
             .map(|(id, _)| *id)
+    }
+
+    pub fn find_prefix(&self, prefix: &str, server_name: &String) -> Vec<(usize, String)> {
+        let runner = self.resolve_runner(server_name);
+        let prefix_lower = prefix.to_lowercase();
+
+        runner
+            .list
+            .iter()
+            .filter(|(_, p)| p.name.to_lowercase().starts_with(&prefix_lower))
+            .map(|(id, p)| (*id, p.name.clone()))
+            .collect()
     }
 
     pub fn find_partial(&self, pattern: &str, server_name: &String) -> Vec<(usize, String)> {
@@ -1039,6 +1085,7 @@ mod tests {
             },
             children: vec![],
             started: Utc::now(),
+            initial_logs: InitialLogs::default(),
         };
 
         runner.list.insert(id, process);
@@ -1087,6 +1134,7 @@ mod tests {
             },
             children: vec![],
             started: Utc::now(),
+            initial_logs: InitialLogs::default(),
         };
 
         runner.list.insert(id, process);

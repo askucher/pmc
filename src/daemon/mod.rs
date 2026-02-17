@@ -82,6 +82,62 @@ fn restart_process() {
     }
 }
 
+fn capture_initial_logs() {
+    use std::io::{BufRead, BufReader, Seek, SeekFrom};
+
+    let mut runner = Runner::new();
+    let mut changed = false;
+
+    for (_id, item) in runner.list.iter_mut() {
+        if !item.running {
+            continue;
+        }
+        if item.initial_logs.out.len() >= 100 && item.initial_logs.error.len() >= 100 {
+            continue;
+        }
+
+        let logs = item.logs();
+
+        if item.initial_logs.out.len() < 100 {
+            if let Ok(mut f) = std::fs::File::open(&logs.out) {
+                if f.seek(SeekFrom::Start(item.initial_logs.start_pos_out)).is_ok() {
+                    let reader = BufReader::new(f);
+                    let lines: Vec<String> = reader
+                        .lines()
+                        .take(100)
+                        .filter_map(|l| l.ok())
+                        .collect();
+                    if lines.len() > item.initial_logs.out.len() {
+                        item.initial_logs.out = lines;
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        if item.initial_logs.error.len() < 100 {
+            if let Ok(mut f) = std::fs::File::open(&logs.error) {
+                if f.seek(SeekFrom::Start(item.initial_logs.start_pos_error)).is_ok() {
+                    let reader = BufReader::new(f);
+                    let lines: Vec<String> = reader
+                        .lines()
+                        .take(100)
+                        .filter_map(|l| l.ok())
+                        .collect();
+                    if lines.len() > item.initial_logs.error.len() {
+                        item.initial_logs.error = lines;
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+
+    if changed {
+        runner.save();
+    }
+}
+
 pub fn health(format: &String) {
     let mut pid: Option<i32> = None;
     let mut cpu_percent: Option<f64> = None;
@@ -281,6 +337,7 @@ pub fn start(verbose: bool) {
             }
 
             then!(!Runner::new().is_empty(), restart_process());
+            capture_initial_logs();
             sleep(Duration::from_millis(config.interval));
         }
     }

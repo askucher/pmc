@@ -4,12 +4,14 @@ use std::time::{Duration, SystemTime};
 pub mod cpu;
 pub mod env;
 pub mod memory;
+pub mod ports;
 pub mod process_info;
 pub mod process_list;
 
 pub use cpu::get_cpu_percent;
 pub use env::{Vars, env};
 pub use memory::{NativeMemoryInfo, get_memory_info};
+pub use ports::{format_ports, format_ports_colored, get_listening_ports, is_port_open};
 pub use process_info::{get_parent_pid, get_process_name, get_process_start_time};
 pub use process_list::native_processes;
 

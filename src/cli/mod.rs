@@ -1,6 +1,7 @@
 mod args;
 pub use args::*;
 
+pub(crate) mod dashboard;
 pub(crate) mod import;
 pub(crate) mod internal;
 pub(crate) mod server;
@@ -60,9 +61,11 @@ pub fn start(
             *helpers::SUCCESS
         );
 
-        let largest = runner.size();
-        match largest {
-            Some(largest) => (0..*largest + 1).for_each(|id| {
+        let ids: Vec<usize> = runner.items().keys().copied().collect();
+        if ids.is_empty() {
+            println!("{} Cannot start all, no processes found", *helpers::FAIL);
+        } else {
+            for id in ids {
                 runner = Internal {
                     id,
                     server_name,
@@ -70,8 +73,7 @@ pub fn start(
                     runner: runner.clone(),
                 }
                 .restart(&None, &None, false, true);
-            }),
-            None => println!("{} Cannot start all, no processes found", *helpers::FAIL),
+            }
         }
     } else {
         match args {
@@ -95,13 +97,37 @@ pub fn start(
                     .restart(name, watch, *reset_env, false);
                 }
                 None => {
-                    Internal {
-                        id: 0,
-                        runner,
-                        server_name,
-                        kind,
+                    let prefix_matches = runner.find_prefix(script, server_name);
+                    match prefix_matches.len() {
+                        1 => {
+                            let (id, _) = prefix_matches[0].clone();
+                            Internal {
+                                id,
+                                runner,
+                                server_name,
+                                kind,
+                            }
+                            .restart(name, watch, *reset_env, false);
+                        }
+                        n if n > 1 => {
+                            println!(
+                                "{} Multiple processes match prefix '{script}':",
+                                *helpers::FAIL
+                            );
+                            for (id, proc_name) in &prefix_matches {
+                                println!("  {} {id}|{proc_name}", "-".yellow());
+                            }
+                        }
+                        _ => {
+                            Internal {
+                                id: 0,
+                                runner,
+                                server_name,
+                                kind,
+                            }
+                            .create(script, name, watch, false);
+                        }
                     }
-                    .create(script, name, watch, false);
                 }
             },
         }
@@ -119,9 +145,11 @@ pub fn stop(item: &Item, server_name: &String) {
     if arg == "all" {
         println!("{} Applying {kind}action stopAllProcess", *helpers::SUCCESS);
 
-        let largest = runner.size();
-        match largest {
-            Some(largest) => (0..*largest + 1).for_each(|id| {
+        let ids: Vec<usize> = runner.items().keys().copied().collect();
+        if ids.is_empty() {
+            println!("{} Cannot stop all, no processes found", *helpers::FAIL);
+        } else {
+            for id in ids {
                 runner = Internal {
                     id,
                     server_name,
@@ -129,8 +157,7 @@ pub fn stop(item: &Item, server_name: &String) {
                     runner: runner.clone(),
                 }
                 .stop(true);
-            }),
-            None => println!("{} Cannot stop all, no processes found", *helpers::FAIL),
+            }
         }
     } else {
         match item {
@@ -318,6 +345,10 @@ pub fn logs(item: &Item, lines: &usize, server_name: &String) {
             }
         },
     }
+}
+
+pub fn details(lines: &usize, server_name: &String) {
+    Internal::details(lines, server_name);
 }
 
 // combine into a single function that handles multiple

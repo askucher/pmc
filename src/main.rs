@@ -145,14 +145,17 @@ enum Commands {
         #[arg(short, long)]
         server: Option<String>,
     },
-    /// Get information of a process
+    /// Get information of a process, or overview of all processes with logs
     #[command(visible_alias = "info")]
     Details {
         #[clap(value_parser = cli::validate::<Item>)]
-        item: Item,
+        item: Option<Item>,
         /// Format output
         #[arg(long, default_value_t = string!("default"))]
         format: String,
+        /// Number of log lines to show per process (used without item)
+        #[arg(long, default_value_t = 5)]
+        lines: usize,
         /// Server
         #[arg(short, long)]
         server: Option<String>,
@@ -203,6 +206,9 @@ enum Commands {
         #[arg(short, long)]
         server: Option<String>,
     },
+    /// Interactive TUI dashboard
+    #[command(visible_alias = "dash", visible_alias = "tui")]
+    Dashboard,
     /// Daemon management
     #[command(visible_alias = "agent", visible_alias = "bgd")]
     Daemon {
@@ -250,10 +256,17 @@ fn main() {
         Commands::Save { server } => Internal::save(&defaults(server)),
         Commands::Env { item, server } => cli::env(item, &defaults(server)),
         Commands::Details {
-            item,
+            item: Some(item),
             format,
             server,
+            ..
         } => cli::info(item, format, &defaults(server)),
+        Commands::Details {
+            item: None,
+            lines,
+            server,
+            ..
+        } => cli::details(lines, &defaults(server)),
         Commands::List {
             item,
             format,
@@ -271,6 +284,7 @@ fn main() {
             server,
         } => cli::logs(item, lines, &defaults(server)),
         Commands::Flush { item, server } => cli::flush(item, &defaults(server)),
+        Commands::Dashboard => cli::dashboard::run(),
 
         Commands::Daemon { command } => match command {
             Daemon::Stop => daemon::stop(),
@@ -292,6 +306,7 @@ fn main() {
         && !matches!(&cli.command, Commands::Save { .. })
         && !matches!(&cli.command, Commands::Env { .. })
         && !matches!(&cli.command, Commands::Export { .. })
+        && !matches!(&cli.command, Commands::Dashboard)
     {
         then!(
             !daemon::pid::exists(),

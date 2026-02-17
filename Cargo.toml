@@ -56,6 +56,8 @@ nix = { version = "0.27.1", features = ["process", "signal"] }
 utoipa = { version = "4.2.3", features = ["serde_yaml", "non_strict_integers"] }
 tokio-tungstenite = { version = "0.28.0", features = ["rustls-tls-webpki-roots", "url"] }
 futures = "0.3.30"
+ratatui = "0.29"
+crossterm = "0.28"
 
 
 [dependencies.reqwest]

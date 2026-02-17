@@ -1,8 +1,11 @@
 use colored::Colorize;
 use futures::{StreamExt, stream::FuturesUnordered};
 use macros_rs::{crashln, string, ternary, then};
+use std::io::BufRead;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use pmc::process::{MemoryInfo, unix::NativeProcess as Process};
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use pmc::process::unix::{format_ports_colored, get_listening_ports};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -955,6 +958,134 @@ impl<'i> Internal<'i> {
         Internal::list(&string!("default"), &list_name);
     }
 
+    pub fn details(lines: &usize, server_name: &String) {
+        let render_details = |runner: &mut Runner, internal: bool| {
+            if runner.is_empty() {
+                println!("{} Process table empty", *helpers::SUCCESS);
+                return;
+            }
+
+            for (id, item) in runner.items() {
+                let mut cpu_percent = string!("0.00%");
+                let mut memory_usage = string!("0b");
+
+                if internal {
+                    if let Ok(process) = Process::new(item.pid as u32) {
+                        cpu_percent = format!(
+                            "{:.2}%",
+                            get_process_cpu_usage_percentage(item.pid)
+                        );
+                        if let Ok(mem) = process.memory_info() {
+                            memory_usage = helpers::format_memory(MemoryInfo::from(mem).rss);
+                        }
+                    }
+                }
+
+                let status_str = if item.running {
+                    "online".green().bold()
+                } else if item.crash.crashed {
+                    "crashed".red().bold()
+                } else {
+                    "stopped".red().bold()
+                };
+
+                let pid_str = if item.running {
+                    format!("{}", item.pid)
+                } else {
+                    string!("n/a")
+                };
+
+                let uptime_str = if item.running {
+                    helpers::format_duration(item.started)
+                } else {
+                    string!("none")
+                };
+
+                #[cfg(any(target_os = "linux", target_os = "macos"))]
+                let ports_str = if item.running {
+                    let port_map = get_listening_ports();
+                    let ports = port_map.get(&item.pid).cloned().unwrap_or_default();
+                    format_ports_colored(&ports)
+                } else {
+                    "-".red().to_string()
+                };
+                #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+                let ports_str = "-".bright_black().to_string();
+
+                // header
+                println!(
+                    "\n{}",
+                    format!(
+                        "━━━ [{id}] {}  ({status_str})  PID: {pid_str}  Uptime: {uptime_str}  ↺ {}  CPU: {cpu_percent}  Mem: {memory_usage}  Ports: {ports_str}",
+                        item.name, item.restarts
+                    )
+                    .bright_white()
+                    .bold()
+                );
+
+                // logs
+                for kind in ["out", "error"] {
+                    let log_file = match kind {
+                        "out" => item.logs().out,
+                        _ => item.logs().error,
+                    };
+
+                    if !file::Exists::check(&log_file).empty() {
+                        let file = std::fs::File::open(&log_file).unwrap();
+                        let reader = std::io::BufReader::new(file);
+                        let all_lines: Vec<String> = reader
+                            .lines()
+                            .map(|l| l.unwrap_or_default())
+                            .collect();
+                        let start = if all_lines.len() > *lines {
+                            all_lines.len() - lines
+                        } else {
+                            0
+                        };
+                        let tail = &all_lines[start..];
+
+                        if !tail.is_empty() {
+                            let label = ternary!(kind == "out", "stdout", "stderr");
+                            let color = ternary!(kind == "out", "green", "red");
+                            println!(
+                                "{}",
+                                format!("  ─── {label} (last {} lines):", tail.len()).bright_black()
+                            );
+                            for line in tail {
+                                println!(
+                                    "  {} {}",
+                                    format!("{}|{}|{kind} |", id, item.name).color(color),
+                                    line
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+
+            println!();
+        };
+
+        if let Some(servers) = config::servers().servers {
+            if let Some(server) = servers.get(server_name) {
+                match Runner::connect(server_name.clone(), server.get(), true) {
+                    Some(mut remote) => render_details(&mut remote, false),
+                    None => println!(
+                        "{} Failed to fetch (name={server_name}, address={})",
+                        *helpers::FAIL,
+                        server.address
+                    ),
+                }
+            } else if matches!(&**server_name, "internal" | "all" | "global" | "local") {
+                render_details(&mut Runner::new(), true);
+            } else {
+                crashln!("{} Server '{server_name}' does not exist", *helpers::FAIL);
+            }
+        } else {
+            render_details(&mut Runner::new(), true);
+        }
+    }
+
     pub fn list(format: &String, server_name: &String) {
         let render_list = |runner: &mut Runner, internal: bool| {
             let mut processes: Vec<ProcessItem> = Vec::new();
@@ -970,6 +1101,7 @@ impl<'i> Internal<'i> {
                 status: ColoredString,
                 cpu: String,
                 mem: String,
+                ports: String,
                 #[tabled(rename = "watching")]
                 watch: String,
             }
@@ -989,6 +1121,7 @@ impl<'i> Internal<'i> {
                         "uptime": &self.uptime.trim(),
                         "status": &self.status.0.trim(),
                         "restarts": &self.restarts.trim(),
+                        "ports": &self.ports.trim(),
                     });
                     trimmed_json.serialize(serializer)
                 }
@@ -997,6 +1130,11 @@ impl<'i> Internal<'i> {
             if runner.is_empty() {
                 println!("{} Process table empty", *helpers::SUCCESS);
             } else {
+                #[cfg(any(target_os = "linux", target_os = "macos"))]
+                let port_map = if internal { get_listening_ports() } else { std::collections::HashMap::new() };
+                #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+                let port_map: std::collections::HashMap<i64, Vec<u16>> = std::collections::HashMap::new();
+
                 for (id, item) in runner.items() {
                     let mut cpu_percent: String = string!("0%");
                     let mut memory_usage: String = string!("0b");
@@ -1049,6 +1187,22 @@ impl<'i> Internal<'i> {
                         .bold()
                     };
 
+                    let ports_display = if item.running {
+                        #[cfg(any(target_os = "linux", target_os = "macos"))]
+                        {
+                            let ports = port_map.get(&item.pid).cloned().unwrap_or_default();
+                            format!("{}  ", format_ports_colored(&ports))
+                        }
+                        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+                        {
+                            let ports = port_map.get(&item.pid).cloned().unwrap_or_default();
+                            let display = if ports.is_empty() { String::from("-") } else { ports.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(", ") };
+                            format!("{display}  ")
+                        }
+                    } else {
+                        format!("{}  ", "-".red())
+                    };
+
                     processes.push(ProcessItem {
                         status: status.into(),
                         cpu: format!("{cpu_percent}   "),
@@ -1057,6 +1211,7 @@ impl<'i> Internal<'i> {
                         restarts: format!("{}  ", item.restarts),
                         name: format!("{}   ", item.name.clone()),
                         pid: ternary!(item.running, format!("{}  ", item.pid), string!("n/a  ")),
+                        ports: ports_display,
                         watch: ternary!(
                             item.watch.enabled,
                             format!("{}  ", item.watch.path),
